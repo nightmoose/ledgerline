@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Decision trace {% if run_id %}<span class="tag">{{ run_id }}</span>{% endif %}</h1>
+<div class="row">
+  <div class="card">
+    {% if events %}
+    <table>
+      {% for event in events %}
+      <tr>
+        <td>{{ event.time }}</td>
+        <td><span class="tag">{{ event.kind }}</span></td>
+        <td class="{{ event.klass }}">{{ event.message }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <p class="k">The audit log is empty.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

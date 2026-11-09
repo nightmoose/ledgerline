@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+  <style>
+    body { margin: 0; font-family: Inter, Arial, sans-serif; background: #0f1420; color: #e6e9ef; }
+    .bar { background: #c0392b; color: #fff; text-align: center; font-weight: 700; padding: 8px 12px; letter-spacing: 1px; }
+    nav { display: flex; gap: 16px; margin: 0 24px; }
+    nav a { color: #8b95ad; text-decoration: none; font-size: 14px; padding: 10px 0; }
+    nav a.active { color: #fff; border-bottom: 2px solid #c0392b; }
+    h1 { font-size: 22px; margin: 16px 24px; }
+    .row { display: flex; gap: 14px; margin: 0 24px 14px; flex-wrap: wrap; }
+    .card { background: #1a2133; border: 1px solid #2c3550; border-radius: 10px; padding: 14px; flex: 1; min-width: 180px; }
+    .k { font-size: 12px; color: #8b95ad; }
+    .v { font-size: 24px; font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    td, th { padding: 8px; border-bottom: 1px solid #2c3550; text-align: left; vertical-align: top; }
+    td:first-child, th:first-child { white-space: nowrap; }
+    .ok { color: #2ecc71; }
+    .bad { color: #e74c3c; }
+    .warn { color: #f1c40f; }
+    .btn { display: inline-block; padding: 5px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; margin-right: 4px; border: 0; cursor: pointer; text-decoration: none; }
+    .a { background: #2ecc71; color: #06210f; }
+    .r { background: #e74c3c; color: #fff; }
+    .ghost { background: #2c3550; color: #e6e9ef; }
+    .tag { font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #2c3550; margin-left: 6px; }
+    pre { font-size: 12px; background: #0b0f18; padding: 10px; border-radius: 6px; white-space: pre-wrap; }
+    form.inline { display: inline; }
+    .note { margin: 8px 24px 16px; color: #8b95ad; font-size: 12px; }
+    .error { margin: 8px 24px; color: #e74c3c; }
+  </style>
+</head>
+<body>
+  <div class="bar">LEDGERLINE — {{ bar }}</div>
+  <nav>
+    <a href="/" class="{{ 'active' if page == 'dashboard' else '' }}">Console</a>
+    <a href="/trace" class="{{ 'active' if page == 'trace' else '' }}">Decision trace</a>
+    <a href="/policy" class="{{ 'active' if page == 'policy' else '' }}">Policy</a>
+  </nav>
+  {% block body %}{% endblock %}
+</body>
+</html>

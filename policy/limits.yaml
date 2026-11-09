@@ -1,0 +1,31 @@
+# Deterministic treasury limits. Prompts cannot change these.
+# Amounts are major units. Indicative rates are the mock sandbox cross
+# used when a live quote is not in hand yet. They are not a market feed.
+version: 7
+reserve_floor:
+  USD: "5000"
+  EUR: "1000"
+  GBP: "250"
+fx_auto_limit_high_conf: "10000"
+fx_auto_limit_low_conf: "3000"
+confidence_threshold: "0.85"
+auto_transfer_limit: "10000"
+beneficiary_must_be_verified: true
+max_quote_age_seconds: 60
+defer_allowed_if_no_penalty: true
+swift_fee:
+  amount: "12.85"
+  currency: EUR
+# Observed on api-demo.airwallex.com on 2026-11-09: a SWIFT EUR payout with
+# fee_paid_by PAYER charged a flat EUR 13.39. Live mode plans with this fee.
+swift_fee_live:
+  amount: "13.39"
+  currency: EUR
+evidence:
+  confidence_when_bank_and_invoice_agree: "0.91"
+  confidence_when_one_source_agrees: "0.70"
+  confidence_when_sources_disagree: "0.40"
+  contradiction_cap: "0.62"
+# Mock sandbox: 1 USD buys 0.9213 EUR. GBP indicative is USD per 1 GBP.
+indicative_eur_per_usd: "0.9213"
+indicative_usd_per_gbp: "1.27"

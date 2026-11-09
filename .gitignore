@@ -225,3 +225,8 @@ __marimo__/
 !.env.example
 .vercel
 node_modules/
+
+# Runtime state
+data/
+*.sqlite3
+*.jsonl

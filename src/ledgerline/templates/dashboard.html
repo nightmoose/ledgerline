@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Ledgerline · Treasury console
+  <span class="tag">{{ mode_label }}</span>
+  <span class="tag">forecast confidence {{ confidence }}</span>
+</h1>
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+<div class="row">
+  {% for card in cards %}
+  <div class="card">
+    <div class="k">{{ card.label }}</div>
+    <div class="v {{ card.klass }}">{{ card.value }}</div>
+    <div class="k">{{ card.detail }}</div>
+  </div>
+  {% endfor %}
+</div>
+<div class="row">
+  <div class="card">
+    <b>{{ plan_title }}</b>
+    {% if lines %}
+    <table>
+      <tr>
+        <th>Action</th><th>Obligation</th><th>Amount</th><th>Why</th><th>Policy checks (code)</th><th>Decision</th>
+      </tr>
+      {% for line in lines %}
+      <tr>
+        <td><b>{{ line.action }}</b></td>
+        <td>{{ line.label }}</td>
+        <td>{{ line.amount }}</td>
+        <td>{{ line.reason }}</td>
+        <td class="{{ line.check_class }}">
+          {% for check in line.checks %}{{ check }}<br>{% endfor %}
+        </td>
+        <td>
+          {% if line.kind == 'approval' %}
+            <form class="inline" method="post" action="/approvals/{{ line.approval_id }}/approve">
+              <input type="hidden" name="approver" value="Alex">
+              <button class="btn a" type="submit">{{ line.approve_label }}</button>
+            </form>
+            <form class="inline" method="post" action="/approvals/{{ line.approval_id }}/reject">
+              <input type="hidden" name="approver" value="Alex">
+              <button class="btn r" type="submit">Reject</button>
+            </form>
+          {% else %}
+            <span class="{{ line.klass }}">{{ line.decision }}</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <p class="k">No plan yet. Run the scripted demo to load the five obligations.</p>
+    {% endif %}
+    <div class="k" style="margin-top:8px">Approval binds: amount · currency · counterparty · quote_id · evidence hash. Any change voids the approval.</div>
+  </div>
+</div>
+<div class="note">
+  <form class="inline" method="post" action="/demo/prepare"><button class="btn ghost" type="submit">Prepare demo</button></form>
+  <form class="inline" method="post" action="/demo/finish"><button class="btn a" type="submit">Settle approved plan</button></form>
+  <form class="inline" method="post" action="/demo/run"><button class="btn ghost" type="submit">Run full demo</button></form>
+</div>
+{% endblock %}
