@@ -151,6 +151,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             now_ms=int(time.time() * 1000),
         )
         # One line per delivery for the host's request log. No secrets, no body.
+        name = transfer_id = transfer_status = None
+        if result["status"] == 200:
+            event = json.loads(raw)
+            data = event.get("data") or {}
+            obj = data.get("object") if isinstance(data.get("object"), dict) else data
+            name = event.get("name")
+            transfer_id = obj.get("id")
+            transfer_status = obj.get("status")
         print(
             "webhook",
             json.dumps(
@@ -158,6 +166,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "status": result["status"],
                     "code": result.get("code"),
                     "event_id": result.get("event_id"),
+                    "name": name,
+                    "transfer_id": transfer_id,
+                    "transfer_status": transfer_status,
                     "duplicate": result.get("duplicate"),
                 }
             ),
