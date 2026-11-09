@@ -16,6 +16,11 @@ defer_allowed_if_no_penalty: true
 swift_fee:
   amount: "12.85"
   currency: EUR
+# Observed on api-demo.airwallex.com on 2026-11-09: a SWIFT EUR payout with
+# fee_paid_by PAYER charged a flat EUR 13.39. Live mode plans with this fee.
+swift_fee_live:
+  amount: "13.39"
+  currency: EUR
 evidence:
   confidence_when_bank_and_invoice_agree: "0.91"
   confidence_when_one_source_agrees: "0.70"

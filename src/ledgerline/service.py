@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC
 from decimal import Decimal
@@ -13,7 +15,7 @@ from ledgerline.agent.providers import build_reader
 from ledgerline.agent.tools import dispatch
 from ledgerline.approval.gate import Approval, bound_to, evidence_hash, fingerprint, void_if_changed
 from ledgerline.audit.log import AuditLog
-from ledgerline.clock import Clock
+from ledgerline.clock import Clock, WallClock
 from ledgerline.config import Settings, load_settings
 from ledgerline.contracts.gate import GateReport, ingest_ledger, parse_obligations
 from ledgerline.contracts.models import Obligation, Plan
@@ -27,10 +29,51 @@ from ledgerline.policy.limits import Limits, load_limits
 from ledgerline.replan.replanner import affected_ids, merge
 from ledgerline.webhooks.receiver import WebhookReceiver, sign
 
-IN_FLIGHT = {"PROCESSING", "SENT"}
+IN_FLIGHT = {"SCHEDULED", "PROCESSING", "SENT"}
 TERMINAL_OK = {"PAID"}
 TERMINAL_FAIL = {"CANCELLED", "FAILED"}
 COUNTRY = {"USD": "US", "EUR": "DE", "GBP": "GB"}
+BOOK_CURRENCIES = ("USD", "EUR", "GBP")
+
+# Sandbox test bank details that pass POST /beneficiaries/validate on the demo
+# host (observed 2026-11-09). They are public test values, not real accounts.
+_ADDRESSES = {
+    "US": {"street_address": "100 Harbor Way", "city": "Oakland", "state": "CA",
+           "postcode": "94607", "country_code": "US"},
+    "DE": {"street_address": "Friedrichstrasse 10", "city": "Berlin",
+           "postcode": "10117", "country_code": "DE"},
+    "GB": {"street_address": "1 Old Street", "city": "London",
+           "postcode": "EC1V 9HL", "country_code": "GB"},
+}
+
+
+def _bank_details(name: str, currency: str, method: str) -> dict[str, Any]:
+    country = COUNTRY[currency]
+    details: dict[str, Any] = {
+        "account_name": name,
+        "account_currency": currency,
+        "bank_country_code": country,
+    }
+    if currency == "USD":
+        details.update(
+            account_number="123456789",
+            account_routing_type1="aba",
+            account_routing_value1="026009593",
+            bank_account_category="Checking",
+            local_clearing_system="ACH",
+        )
+    elif currency == "EUR":
+        details["iban"] = "DE89370400440532013000"
+        if method == "SWIFT":
+            details["swift_code"] = "COBADEFFXXX"
+    elif currency == "GBP":
+        details.update(
+            account_number="31926819",
+            account_routing_type1="sort_code",
+            account_routing_value1="200415",
+            local_clearing_system="FASTER_PAYMENTS",
+        )
+    return details
 
 
 @dataclass
@@ -55,8 +98,19 @@ class Diff:
 class Service:
     def __init__(self, settings: Settings | None = None, clock: Clock | None = None) -> None:
         self.settings = settings or load_settings()
-        self.clock = clock or Clock()
+        self.clock = clock or (WallClock() if self.settings.live else Clock())
         self.limits = load_limits(self.settings.limits_path)
+        if self.settings.live and self.limits.swift_fee_live is not None:
+            self.limits = self.limits.model_copy(update={"swift_fee": self.limits.swift_fee_live})
+        # Live request ids carry a run id so a second demo run against the same
+        # sandbox does not collide with the first run's request_id values.
+        # Retries inside one run still reuse the same id.
+        self.run_id = self.settings.run_id or (uuid.uuid4().hex[:8] if self.settings.live else "")
+        # The sandbox wallet is shared and pre-funded. In live mode Ledgerline
+        # plans against a ring-fenced book: live balance minus the balance seen
+        # when the run started. Set LEDGERLINE_LIVE_BOOK=wallet to plan against
+        # the whole wallet instead.
+        self._baseline: dict[str, Decimal] | None = None
         self.adapter = build_adapter(self.settings, self.clock)
         self.audit = AuditLog(self.settings.audit_path, self.settings.db_path)
         self.reader = build_reader(self.settings)
@@ -84,10 +138,31 @@ class Service:
             close()
 
     def wallet(self) -> dict[str, Decimal]:
-        balances = {"USD": money("0"), "EUR": money("0"), "GBP": money("0")}
+        balances = self._raw_wallet()
+        if not self.settings.live or self.settings.live_book != "ringfenced":
+            return balances
+        if self._baseline is None:
+            self._baseline = dict(balances)
+            self._log(
+                "contract",
+                "Ring-fenced live book opened at the current sandbox balance",
+                baseline={key: str(value) for key, value in balances.items()},
+            )
+        return {
+            currency: money(balances[currency] - self._baseline.get(currency, money("0")))
+            for currency in BOOK_CURRENCIES
+        }
+
+    def _raw_wallet(self) -> dict[str, Decimal]:
+        balances = {currency: money("0") for currency in BOOK_CURRENCIES}
         for row in self.adapter.balances():
-            balances[str(row["currency"])] = money(row["available_amount"])
+            currency = str(row["currency"])
+            if currency in balances:
+                balances[currency] = money(row["available_amount"])
         return balances
+
+    def _rid(self, *parts: str) -> str:
+        return request_id(self.run_id, *parts) if self.run_id else request_id(*parts)
 
     def ingest_ledger(self, rows: list[dict[str, Any]]) -> GateReport:
         report = ingest_ledger(rows, self._seen_ledger)
@@ -163,30 +238,100 @@ class Service:
 
     def deposit(self, currency: str, amount: Decimal, *, replan: bool = False) -> dict[str, Decimal]:
         before = self.wallet()
-        account_id = self.settings.global_accounts.get(currency, "")
-        if self.settings.live and not account_id:
-            raise ExecutionError(
-                "config",
-                f"Set AIRWALLEX_GLOBAL_ACCOUNT_{currency} before simulating a deposit",
+        extra: dict[str, Any] = {}
+        account_id = self._deposit_account(currency)
+        if account_id:
+            created = self.adapter.simulate_deposit(
+                {
+                    "amount": str(money(amount)),
+                    "global_account_id": account_id,
+                    "status": "SETTLED",
+                    "reference": f"seed-{currency}",
+                }
             )
-        self.adapter.simulate_deposit(
-            {
-                "amount": str(money(amount)),
-                "global_account_id": account_id,
-                "status": "SETTLED",
-                "reference": f"seed-{currency}",
-            }
-        )
-        after = self.wallet()
+            extra["deposit_id"] = created.get("id")
+            message = f"Simulated deposit {currency} {money(amount)}"
+        elif self.settings.live:
+            extra = self._fund_by_conversion(currency, money(amount))
+            message = (
+                f"Funded {currency} {money(amount)} with a simulated USD deposit of "
+                f"{extra['usd_deposit']} and conversion {extra['conversion_id']}"
+            )
+        else:
+            raise ExecutionError(
+                "config", f"Set AIRWALLEX_GLOBAL_ACCOUNT_{currency} before simulating a deposit"
+            )
+        after = self._wait_for(currency, before[currency] + money(amount)) if self.settings.live else self.wallet()
         self._log(
             "deposit",
-            f"Simulated deposit {currency} {money(amount)}",
+            message,
             currency=currency,
             amount=str(money(amount)),
+            **extra,
         )
         if replan and self.plan is not None:
             self._replan(before, after)
         return after
+
+    def _deposit_account(self, currency: str) -> str:
+        account_id = self.settings.global_accounts.get(currency, "")
+        if account_id or not self.settings.live:
+            return account_id
+        finder = getattr(self.adapter, "deposit_account_for", None)
+        found = finder(currency) if finder else None
+        if found:
+            self.settings.global_accounts[currency] = found
+        return found or ""
+
+    def _fund_by_conversion(self, currency: str, amount: Decimal) -> dict[str, Any]:
+        """No global account takes this currency (and the key cannot create one),
+        so land a USD deposit and convert exactly the needed amount. The USD
+        side of the book nets to zero."""
+        usd_account = self._deposit_account("USD")
+        if not usd_account:
+            raise ExecutionError("config", f"No global account can receive {currency} or USD")
+        usd_before = self._raw_wallet()["USD"]
+        quote = self.adapter.create_quote(
+            {"buy_currency": currency, "sell_currency": "USD",
+             "buy_amount": str(amount), "validity": "MIN_1"}
+        )
+        sell = money(quote["sell_amount"])
+        self.adapter.simulate_deposit(
+            {"amount": str(sell), "global_account_id": usd_account,
+             "status": "SETTLED", "reference": f"seed-{currency}-via-USD"}
+        )
+        self._wait_raw("USD", usd_before + sell)
+        conversion = self.adapter.create_conversion(
+            {
+                "request_id": self._rid("seed", currency, str(amount)),
+                "quote_id": quote["quote_id"],
+                "buy_currency": currency,
+                "sell_currency": "USD",
+                "buy_amount": str(amount),
+            }
+        )
+        return {
+            "usd_deposit": str(sell),
+            "conversion_id": str(conversion["conversion_id"]),
+            "quote_id": quote["quote_id"],
+        }
+
+    def _wait_raw(self, currency: str, target: Decimal, timeout: float = 30.0) -> None:
+        deadline = time.monotonic() + timeout
+        while self._raw_wallet()[currency] < target:
+            if time.monotonic() > deadline:
+                raise ExecutionError("deposit_pending", f"{currency} deposit did not settle in {timeout}s")
+            time.sleep(1.0)
+
+    def _wait_for(self, currency: str, target: Decimal, timeout: float = 30.0) -> dict[str, Decimal]:
+        deadline = time.monotonic() + timeout
+        while True:
+            current = self.wallet()
+            if current[currency] >= target:
+                return current
+            if time.monotonic() > deadline:
+                raise ExecutionError("deposit_pending", f"{currency} deposit did not settle in {timeout}s")
+            time.sleep(1.0)
 
     def tool(self, name: str, arguments: dict[str, Any] | None = None) -> Any:
         return dispatch(self, name, arguments)
@@ -204,21 +349,19 @@ class Service:
             )
             created = self.adapter.create_beneficiary(
                 {
-                    "request_id": request_id(obligation.id, "beneficiary", "1"),
+                    "request_id": self._rid(obligation.id, "beneficiary", "1"),
                     "transfer_methods": [obligation.method],
                     "beneficiary": {
                         "entity_type": "COMPANY",
                         "company_name": obligation.counterparty,
-                        "bank_details": {
-                            "account_name": obligation.counterparty,
-                            "account_currency": obligation.currency,
-                            "bank_country_code": country,
-                            "swift_code": "DEUTDEFF" if obligation.method == "SWIFT" else None,
-                        },
+                        "address": _ADDRESSES[country],
+                        "bank_details": _bank_details(
+                            obligation.counterparty, obligation.currency, obligation.method
+                        ),
                     },
                 }
             )
-            self.beneficiary_ids[obligation.id] = str(created["id"])
+            self.beneficiary_ids[obligation.id] = str(created.get("id") or created.get("beneficiary_id"))
 
     def request_quote(self, obligation_id: str) -> dict[str, Any]:
         line = self._line(obligation_id)
@@ -229,7 +372,7 @@ class Service:
             "sell_currency": "USD",
             "buy_amount": str(line.buy_amount),
             "validity": "MIN_1",
-            "request_id": request_id(obligation_id, "quote", "1"),
+            "request_id": self._rid(obligation_id, "quote", "1"),
         }
         quote = self.adapter.create_quote(payload)
         self.quotes[obligation_id] = quote
@@ -339,7 +482,7 @@ class Service:
                 raise ApprovalError("void", "quote_id changed after approval")
             conversion = self.adapter.create_conversion(
                 {
-                    "request_id": request_id(obligation_id, "conversion", str(attempt_no)),
+                    "request_id": self._rid(obligation_id, "conversion", str(attempt_no)),
                     "quote_id": quote["quote_id"],
                     "buy_currency": quote["buy_currency"],
                     "sell_currency": quote["sell_currency"],
@@ -355,7 +498,7 @@ class Service:
         transfer_amount = obligation.amount
         transfer = self.adapter.create_transfer(
             {
-                "request_id": request_id(obligation_id, "transfer", str(attempt_no)),
+                "request_id": self._rid(obligation_id, "transfer", str(attempt_no)),
                 "beneficiary_id": self.beneficiary_ids[obligation_id],
                 "source_currency": obligation.currency,
                 "transfer_currency": obligation.currency,
@@ -408,10 +551,17 @@ class Service:
         return transfer
 
     def emit_webhook(self, transfer: dict[str, Any], name: str) -> dict[str, Any]:
+        """Sign and feed a transfer event through the same receiver as real
+        deliveries. In live mode this is a local echo of the transfer the host
+        returned; real Airwallex deliveries arrive at POST /webhooks/airwallex."""
+        if not self.settings.webhook_secret:
+            self._log("webhook", f"{name} · local echo skipped: AIRWALLEX_WEBHOOK_SECRET is not set",
+                      name=name, transfer_id=transfer["id"])
+            return {"status": 0, "code": "no_secret", "duplicate": False}
         event = {
-            "id": short_id("evt", transfer["id"], name, str(transfer["status"])),
+            "id": short_id("evt", self.run_id, transfer["id"], name, str(transfer["status"])),
             "name": name,
-            "account_id": "acct_mock",
+            "account_id": "acct_local_echo" if self.settings.live else "acct_mock",
             "created_at": self.clock.iso(),
             "data": {
                 "id": transfer["id"],
@@ -535,17 +685,20 @@ class Service:
                 continue
             self.reconciled.add(event_id)
             data = event.get("data") or {}
+            # Airwallex deliveries wrap the resource in data.object.
+            if isinstance(data.get("object"), dict):
+                data = data["object"]
             transfer_id = str(data.get("id") or "")
             name = str(event.get("name") or "")
-            transfer = None
-            if transfer_id and hasattr(self.adapter, "transfers") and transfer_id in self.adapter.transfers:
-                transfer = self.adapter.get_transfer(transfer_id)
-                self._sync(transfer)
             matched = any(
                 attempt.transfer_id == transfer_id
                 for attempts in self.attempts.values()
                 for attempt in attempts
             )
+            if transfer_id and hasattr(self.adapter, "transfers") and transfer_id in self.adapter.transfers:
+                self._sync(self.adapter.get_transfer(transfer_id))
+            elif transfer_id and matched and self.settings.live:
+                self._sync(self.adapter.get_transfer(transfer_id))
             self._log(
                 "webhook",
                 f"{name} · signature ok · deduped · {'reconciled' if matched else 'unmatched'}",

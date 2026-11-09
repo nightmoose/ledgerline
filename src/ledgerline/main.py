@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 from pathlib import Path
 from urllib.parse import quote
@@ -146,6 +147,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raw,
             request.headers.get("x-timestamp", ""),
             request.headers.get("x-signature", ""),
+        )
+        # One line per delivery for the host's request log. No secrets, no body.
+        print(
+            "webhook",
+            json.dumps(
+                {
+                    "status": result["status"],
+                    "code": result.get("code"),
+                    "event_id": result.get("event_id"),
+                    "duplicate": result.get("duplicate"),
+                }
+            ),
+            flush=True,
         )
         return Response(status_code=int(result["status"]))
 

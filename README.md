@@ -106,44 +106,29 @@ These response shapes were observed on `https://api-demo.airwallex.com`. The liv
 
 The client refuses `page_size` below 10 on those four lists before sending the request.
 
-## Assumptions
+## Live run on the demo host (observed 2026-11-09)
 
-These were not called on the live host in this workspace, because the API key is not stored here. The live client sends the kit paths and the fields below. If the host rejects one of them, the error code from Airwallex is surfaced as-is.
+`LEDGERLINE_MODE=live python -m ledgerline.demo --live` ran the full script end to end on `https://api-demo.airwallex.com`, twice. Each run takes about 35 seconds. What the host does, and how the client handles it:
 
-- `POST /api/v1/fx/quotes/create` with `buy_currency`, `sell_currency`, one of `buy_amount` or `sell_amount`, and `validity`. `request_id` is not sent on this call.
-- `POST /api/v1/fx/conversions/create` with `quote_id`, currencies, `buy_amount`, and `request_id`. The kit says spot conversions settle immediately and quotes are single-use.
-- `POST /api/v1/beneficiaries/schema` and `POST /api/v1/beneficiaries/create`.
-- `POST /api/v1/transfers/create` with `beneficiary_id`, currencies, `transfer_amount`, `transfer_method` (`LOCAL` or `SWIFT`), `reason`, `reference`, `fee_paid_by`, and `request_id`.
-- `GET /api/v1/transfers/{id}`.
-- `POST /api/v1/simulation/deposit/create` needs `amount` and `global_account_id`. Currency comes from that global account.
-- `POST /api/v1/simulation/transfers/{id}/transition` with `next_status`. `FAILED` also sends `failure_type`.
-- Webhooks are subscribed in the web app (Settings > Developer > Webhooks), not via the API. The signature is HMAC-SHA256 of `x-timestamp` concatenated with the raw body.
-- The kit says a failed transfer ends `CANCELLED` and the caller should read `failure_type`. The mock does that. If the live host returns `FAILED` before `CANCELLED`, the executor treats both as a terminal failure and will not send a replacement while the attempt is still in flight.
-- The mock's indicative cross is 0.9213 EUR per 1 USD, from `limits.yaml`. It is used only until a quote exists. It is not a live rate. `rates/current.rate` is passed through and is not used to book a conversion.
-- The mock fills `account_type` with `WALLET` so balance rows have the same keys. The live client returns the server's value unchanged.
-- List item fields for beneficiaries, global accounts, conversions, and deposits are passed through. Only the page envelope was specified.
-
-## Switching the demo to the live host
-
-1. Put the credentials in `.env` (never commit it):
-
-```bash
-LEDGERLINE_MODE=live
-AIRWALLEX_ENV=demo
-AIRWALLEX_CLIENT_ID=...
-AIRWALLEX_API_KEY=...
-AIRWALLEX_WEBHOOK_SECRET=...
-AIRWALLEX_GLOBAL_ACCOUNT_USD=...
-AIRWALLEX_GLOBAL_ACCOUNT_EUR=...
-AIRWALLEX_GLOBAL_ACCOUNT_GBP=...
-```
-
-2. Widen the key so it can read balances, FX rates, quotes, conversions, beneficiaries, transfers, global accounts, and deposits, and can call the simulation endpoints. A key without those scopes returns insufficient permissions, not an authentication failure.
-3. In the sandbox web app, add a webhook endpoint aimed at `https://<your-host>/webhooks/airwallex` for `payout.transfer.paid`, `payout.transfer.failed`, and `payout.transfer.cancelled`. Use that endpoint's secret as `AIRWALLEX_WEBHOOK_SECRET`.
-4. Run `python -m ledgerline.demo --live` only after the steps above. Without `--live`, the script refuses to call the host even if `LEDGERLINE_MODE=live`.
-
-Nothing in this repo is deployed. `vercel.json` and `api/index.py` are there so the FastAPI app can be hosted later. On Vercel the SQLite file and the JSONL log live under `/tmp` and do not survive a new instance. For a durable demo, run `uvicorn ledgerline.main:app`.
-
-## License
-
-MIT
+- **Ring-fenced book.** The sandbox wallet comes pre-funded (about 10M in each of USD, EUR, and GBP). The planner works on a ring-fenced book: the live balance minus the balance seen when the run started. Set `LEDGERLINE_LIVE_BOOK=wallet` to plan against the whole wallet instead.
+- **Seeding.** `POST /simulation/deposit/create` with `amount` and `global_account_id` answers `PENDING` and settles about a second later, so the service waits for the balance. The sandbox has a USD global account only, and the key cannot create others (`POST /global_accounts/create` returns 401 insufficient permissions). EUR and GBP are funded by a simulated USD deposit plus a live conversion of exactly the needed amount, so the USD side nets to zero. If `AIRWALLEX_GLOBAL_ACCOUNT_<CCY>` is unset, an ACTIVE account with a DEPOSIT feature in that currency is looked up.
+- **Lists.** `GET /global_accounts` returns `{items}` with no `has_more`.
+- **Quotes.** `POST /fx/quotes/create` returns `quote_id`, `client_rate`, `buy_amount`, `sell_amount`, `valid_from_at`, `valid_to_at`, and `usage: MULTI_USE`. Live mode runs on a wall clock, so quote age and webhook timestamps are compared against real time.
+- **Conversions.** `POST /fx/conversions/create` with `request_id`, `quote_id`, currencies, and `buy_amount` returns `conversion_id` and `SETTLED`.
+- **Beneficiaries.** Creating one needs an `address` and real-format bank details. The service uses public test values that pass `/beneficiaries/validate`:
+  - USD ACH: ABA routing number plus `bank_account_category`.
+  - EUR SWIFT: IBAN plus BIC.
+  - EUR LOCAL: IBAN only. Setting `local_clearing_system` returns `beneficiary_type_unsupported`.
+  - GBP: sort code and account number.
+- **Transfers.**
+  - `POST /transfers/create` returns `SCHEDULED`.
+  - A SWIFT EUR payout paid by the payer charged a flat EUR 13.39 fee. Live mode plans with `swift_fee_live` in `limits.yaml`.
+  - Reusing a `request_id` returns 400 `duplicate_request_id`, even for an identical body. The client looks the original up by `request_id` and returns it.
+- **Simulation.**
+  - `SCHEDULED → PAID` and `SCHEDULED → PROCESSING` return 500 `operation_failed`. The client moves the transfer to `SENT` first.
+  - `FAILED` answers `FAILED` with a failure_type that the host chooses itself (`INCORRECT_ROUTING` was observed even when `BENEFICIARY_BANK_RETURNED` was requested). The transfer then reads `CANCELLED`.
+- **Request ids.** Live request ids include a per-run id (`LEDGERLINE_RUN_ID`, random by default), so a second run does not collide with the first. Retries within a run reuse the same id.
+- **Webhooks.**
+  - The key can manage them over the API. `POST /api/v1/webhooks/create` takes `url`, `events`, `version`, and `request_id`, and returns the signing `secret`.
+  - Real deliveries wrap the resource in `data.object`, and the receiver reads it there.
+  - In the CLI, the signed events are a local echo of each transfer the host returned. Real deliveries go to `POST /webhooks/airwallex`.

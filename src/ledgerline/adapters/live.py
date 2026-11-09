@@ -140,7 +140,25 @@ class LiveAirwallex:
         return self._request("POST", "/api/v1/beneficiaries/create", json_body=payload)
 
     def create_transfer(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return self._request("POST", "/api/v1/transfers/create", json_body=payload)
+        # The live host answers a retried request_id with 400 duplicate_request_id
+        # even when the body is identical. Look the original up so a retry
+        # returns it, as the mock does. A different body still raises.
+        try:
+            return self._request("POST", "/api/v1/transfers/create", json_body=payload)
+        except AirwallexError as exc:
+            if exc.code != "duplicate_request_id" or not payload.get("request_id"):
+                raise
+            found = self.list_transfers(page_size=10, request_id=str(payload["request_id"]))
+            for item in found.get("items", []):
+                same = (
+                    item.get("request_id") == payload["request_id"]
+                    and str(item.get("beneficiary_id")) == str(payload.get("beneficiary_id"))
+                    and Decimal(str(item.get("transfer_amount")))
+                    == Decimal(str(payload.get("transfer_amount")))
+                )
+                if same:
+                    return self.get_transfer(str(item["id"]))
+            raise
 
     def get_transfer(self, transfer_id: str) -> dict[str, Any]:
         return self._request("GET", f"/api/v1/transfers/{transfer_id}")
@@ -165,7 +183,12 @@ class LiveAirwallex:
         return self._paged("/api/v1/beneficiaries", page_num=page_num, page_size=page_size)
 
     def list_global_accounts(self, *, page_num: int = 0, page_size: int = 10) -> dict[str, Any]:
-        return self._paged("/api/v1/global_accounts", page_num=page_num, page_size=page_size)
+        return self._paged(
+            "/api/v1/global_accounts",
+            page_num=page_num,
+            page_size=page_size,
+            has_more_optional=True,
+        )
 
     def list_conversions(self, *, page_num: int = 0, page_size: int = 10) -> dict[str, Any]:
         return self._paged("/api/v1/fx/conversions", page_num=page_num, page_size=page_size)
@@ -185,10 +208,13 @@ class LiveAirwallex:
         page_num: int,
         page_size: int,
         total_count: bool = False,
+        has_more_optional: bool = False,
     ) -> dict[str, Any]:
         params = require_page(page_num, page_size)
         body = self._request("GET", path, params=params)
-        return expect_page(body, path=path, total_count=total_count)
+        return expect_page(
+            body, path=path, total_count=total_count, has_more_optional=has_more_optional
+        )
 
     def simulate_deposit(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request("POST", "/api/v1/simulation/deposit/create", json_body=payload)
@@ -196,11 +222,31 @@ class LiveAirwallex:
     def simulate_transfer_transition(
         self, transfer_id: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
-        return self._request(
-            "POST",
-            f"/api/v1/simulation/transfers/{transfer_id}/transition",
-            json_body=payload,
-        )
+        # Observed on the demo host: a new transfer is SCHEDULED, and moving it
+        # straight to PROCESSING or PAID returns 500 operation_failed. SENT is
+        # accepted from SCHEDULED, and PAID or FAILED are accepted from SENT.
+        path = f"/api/v1/simulation/transfers/{transfer_id}/transition"
+        target = str(payload.get("next_status", ""))
+        if target in {"PAID", "FAILED"}:
+            current = str(self.get_transfer(transfer_id).get("status", ""))
+            if current in {"SCHEDULED", "OVERDUE", "PROCESSING"}:
+                self._request("POST", path, json_body={"next_status": "SENT"})
+        return self._request("POST", path, json_body=payload)
+
+    def deposit_account_for(self, currency: str) -> str | None:
+        """First ACTIVE global account that takes deposits in this currency."""
+        page = 0
+        while True:
+            body = self.list_global_accounts(page_num=page, page_size=50)
+            for item in body.get("items", []):
+                if item.get("status") != "ACTIVE":
+                    continue
+                for feature in item.get("supported_features") or []:
+                    if feature.get("currency") == currency and feature.get("type") == "DEPOSIT":
+                        return str(item["id"])
+            if not body.get("has_more"):
+                return None
+            page += 1
 
     def _request(
         self,

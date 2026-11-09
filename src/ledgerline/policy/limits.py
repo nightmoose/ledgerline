@@ -56,6 +56,8 @@ class Limits(BaseModel):
     max_quote_age_seconds: int
     defer_allowed_if_no_penalty: bool
     swift_fee: SwiftFee
+    # Fee observed on the live demo host. Live mode plans with this one.
+    swift_fee_live: SwiftFee | None = None
     evidence: EvidenceScores
     indicative_eur_per_usd: Decimal
     indicative_usd_per_gbp: Decimal

@@ -2,8 +2,8 @@
 
 beneficiaries, global_accounts, fx/conversions, and deposits return 400
 invalid_argument unless page_num (0-based) and page_size are both sent, and
-page_size is at least 10. The body is {has_more, items}. Deposits also
-include total_count.
+page_size is at least 10. The body is {has_more, items}, except
+global_accounts, which returns only {items}. Deposits also include total_count.
 
 GET /transfers is separate: it takes page_size and returns {items: [...]}.
 """
@@ -60,8 +60,14 @@ def expect_items(body: Any, *, path: str) -> dict[str, Any]:
     return body
 
 
-def expect_page(body: Any, *, path: str, total_count: bool = False) -> dict[str, Any]:
+def expect_page(
+    body: Any, *, path: str, total_count: bool = False, has_more_optional: bool = False
+) -> dict[str, Any]:
     page = expect_items(body, path=path)
+    if "has_more" not in page and has_more_optional:
+        # Observed 2026-11-09: GET /global_accounts on the demo host returns
+        # only {items: [...]}, even with page_num and page_size sent.
+        page = {**page, "has_more": False}
     if "has_more" not in page:
         raise AirwallexError(
             "invalid_response",

@@ -125,7 +125,10 @@ def settle_demo(service: Service, *, approver: str = "Alex") -> DemoReport:
     service.emit_webhook(service.adapter.get_transfer(shipping.transfer_id), "payout.transfer.paid")
     paid = service.transition(supplier_transfer.transfer_id, "PAID")
     service.emit_webhook(paid, "payout.transfer.paid")
-    report.say("Shipping and the Berlin SWIFT transfer are paid.")
+    report.say(
+        f"Shipping {shipping.transfer_id} and the Berlin SWIFT transfer "
+        f"{supplier_transfer.transfer_id} are paid (conversion {supplier_transfer.conversion_id})."
+    )
 
     contractor = service.execute("obl_contractor")
     sent = service.transition(contractor.transfer_id, "SENT")
@@ -137,8 +140,13 @@ def settle_demo(service: Service, *, approver: str = "Alex") -> DemoReport:
     except ExecutionError:
         report.say("Duplicate lock held while the contractor transfer was SENT.")
     failed = service.transition(sent["id"], "FAILED", failure_type="BENEFICIARY_BANK_RETURNED")
-    if failed["status"] != "CANCELLED" or failed["failure_type"] != "BENEFICIARY_BANK_RETURNED":
-        raise RuntimeError(f"failed transfer did not end CANCELLED: {failed['status']}")
+    # The mock ends a failure as CANCELLED with the requested failure_type. The
+    # live demo host answers FAILED with its own failure_type and moves the
+    # transfer to CANCELLED shortly after. Both are terminal failures.
+    if failed["status"] not in {"FAILED", "CANCELLED"} or not failed.get("failure_type"):
+        raise RuntimeError(f"failed transfer did not end FAILED/CANCELLED: {failed['status']}")
+    if not service.poll(failed["id"])["terminal"]:
+        raise RuntimeError("a failed transfer was treated as in flight")
     service.emit_webhook(failed, "payout.transfer.failed")
     replacement = service.execute("obl_contractor", replacement=True)
     if replacement.request_id == contractor.request_id or replacement.attempt != 2:
@@ -153,7 +161,10 @@ def settle_demo(service: Service, *, approver: str = "Alex") -> DemoReport:
     paid_attempts = [item for item in service.attempts["obl_contractor"] if item.status == "paid"]
     if len(paid_attempts) != 1:
         raise RuntimeError("contractor was paid more than once")
-    report.say("Contractor transfer went SENT, then FAILED/CANCELLED, and one replacement was paid.")
+    report.say(
+        f"Contractor transfer {contractor.transfer_id} went SENT, then {failed['status']} "
+        f"({failed.get('failure_type')}); replacement {replacement.transfer_id} was paid."
+    )
 
     if not service.reserves_hold():
         raise RuntimeError(f"reserve floor breached: {service.wallet()}")

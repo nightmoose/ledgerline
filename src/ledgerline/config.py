@@ -64,6 +64,8 @@ class Settings:
     xai_api_key: str
     limits_path: Path
     data_dir: Path
+    run_id: str = ""
+    live_book: str = "ringfenced"
 
     @property
     def live(self) -> bool:
@@ -105,6 +107,9 @@ def load_settings(environ: dict[str, str] | None = None) -> Settings:
     if mode == "mock" and not secret:
         secret = "ledgerline-mock-webhook-secret"
     base_url, airwallex_env = resolve_base_url(env)
+    live_book = env.get("LEDGERLINE_LIVE_BOOK", "ringfenced").strip().lower() or "ringfenced"
+    if live_book not in {"ringfenced", "wallet"}:
+        raise ValueError("LEDGERLINE_LIVE_BOOK must be ringfenced or wallet")
     return Settings(
         mode=mode,
         base_url=base_url,
@@ -119,4 +124,6 @@ def load_settings(environ: dict[str, str] | None = None) -> Settings:
         xai_api_key=env.get("XAI_API_KEY", ""),
         limits_path=_find_limits(env.get("LEDGERLINE_LIMITS")),
         data_dir=data_dir,
+        run_id=env.get("LEDGERLINE_RUN_ID", "").strip(),
+        live_book=live_book,
     )
