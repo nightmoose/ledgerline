@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Policy · limits.yaml <span class="tag">v{{ version }} · changes need approval</span></h1>
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+<div class="row">
+  <div class="card">
+    <table>
+      <tr><th>Rule</th><th>Value</th><th>Enforced in</th></tr>
+      {% for rule in rules %}
+      <tr><td>{{ rule.rule }}</td><td>{{ rule.value }}</td><td>{{ rule.where }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+  <div class="card" style="max-width:380px">
+    <b>Diff (pending)</b>
+    <form method="post" action="/policy/preview">
+      <p class="k">Low-confidence FX auto limit (USD-eq)</p>
+      <input name="fx_auto_limit_low_conf" value="{{ draft_value }}" style="background:#0b0f18;color:#e6e9ef;border:1px solid #2c3550;border-radius:6px;padding:6px">
+      <button class="btn ghost" type="submit">Dry-run</button>
+    </form>
+    {% if preview %}
+    <pre>- {{ preview.name }}: {{ preview.before }}
++ {{ preview.name }}: {{ preview.after }}</pre>
+    <div class="k">Dry-run on the current plan: {{ preview.stricter }} more action(s) would escalate.</div>
+    <form class="inline" method="post" action="/policy/approve"><button class="btn a" type="submit">Approve change</button></form>
+    <form class="inline" method="post" action="/policy/discard"><button class="btn r" type="submit">Discard</button></form>
+    {% else %}
+    <pre>No pending edit.</pre>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
