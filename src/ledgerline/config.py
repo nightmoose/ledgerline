@@ -66,6 +66,7 @@ class Settings:
     data_dir: Path
     run_id: str = ""
     live_book: str = "ringfenced"
+    wall_clock: bool = False
 
     @property
     def live(self) -> bool:
@@ -126,4 +127,5 @@ def load_settings(environ: dict[str, str] | None = None) -> Settings:
         data_dir=data_dir,
         run_id=env.get("LEDGERLINE_RUN_ID", "").strip(),
         live_book=live_book,
+        wall_clock=env.get("LEDGERLINE_CLOCK", "").strip().lower() == "wall",
     )

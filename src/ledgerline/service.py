@@ -98,7 +98,9 @@ class Diff:
 class Service:
     def __init__(self, settings: Settings | None = None, clock: Clock | None = None) -> None:
         self.settings = settings or load_settings()
-        self.clock = clock or (WallClock() if self.settings.live else Clock())
+        self.clock = clock or (
+            WallClock() if self.settings.live or self.settings.wall_clock else Clock()
+        )
         self.limits = load_limits(self.settings.limits_path)
         if self.settings.live and self.limits.swift_fee_live is not None:
             self.limits = self.limits.model_copy(update={"swift_fee": self.limits.swift_fee_live})

@@ -8,6 +8,9 @@ from ledgerline.errors import ApprovalError, ExecutionError
 from ledgerline.scenario import CUSTOMER_EMAIL, DEPOSIT_USD, OBLIGATIONS, RECEIPT, SEED_BALANCES
 from ledgerline.service import Service
 
+# When True, each transcript line is printed as it happens (the CLI sets this).
+ECHO = False
+
 
 @dataclass
 class DemoReport:
@@ -17,6 +20,8 @@ class DemoReport:
 
     def say(self, message: str) -> None:
         self.transcript.append(message)
+        if ECHO:
+            print(message, flush=True)
 
 
 def prepare_demo(service: Service) -> DemoReport:
@@ -34,7 +39,7 @@ def prepare_demo(service: Service) -> DemoReport:
 
     for currency, amount in SEED_BALANCES.items():
         service.deposit(currency, amount)
-    report.say(f"Seeded balances {service.wallet()}.")
+    report.say(f"Seeded balances {_fmt(service.wallet())}.")
 
     loaded = service.load_obligations(OBLIGATIONS)
     if loaded.rejected or len(loaded.accepted) != 5:
@@ -178,7 +183,7 @@ def settle_demo(service: Service, *, approver: str = "Alex") -> DemoReport:
         "Reserves are at or above the floor",
         balances={key: str(value) for key, value in service.wallet().items()},
     )
-    report.say(f"Reserves hold at {service.wallet()}. Audit events: {len(service.replay())}.")
+    report.say(f"Reserves hold at {_fmt(service.wallet())}. Audit events: {len(service.replay())}.")
     return report
 
 
@@ -194,3 +199,7 @@ def _expect(service: Service, actions: dict[str, str]) -> None:
     actual = {line.obligation_id: line.action for line in service.plan.lines}
     if actual != actions:
         raise RuntimeError(f"plan actions {actual} != {actions}")
+
+
+def _fmt(balances) -> str:
+    return " · ".join(f"{currency} {amount:,.2f}" for currency, amount in balances.items())

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 
+from ledgerline import demo_run
 from ledgerline.config import load_settings
 from ledgerline.demo_run import run_demo
 from ledgerline.service import Service
@@ -17,15 +18,15 @@ def main(argv: list[str] | None = None) -> int:
         print("Leave LEDGERLINE_MODE=mock to run the full script with no credentials.")
         return 2
     service = Service(settings)
+    demo_run.ECHO = True
     try:
-        report = run_demo(service)
+        run_demo(service)
     except Exception as exc:
         print(f"Demo failed: {exc}")
         return 1
     finally:
+        demo_run.ECHO = False
         service.close()
-    for line in report.transcript:
-        print(line)
     return 0
 
 
