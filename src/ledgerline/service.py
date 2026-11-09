@@ -576,8 +576,13 @@ class Service:
         result = self.receive_webhook(raw, timestamp, signature)
         return result
 
-    def receive_webhook(self, raw_body: bytes, timestamp: str, signature: str) -> dict[str, Any]:
-        now_ms = int(self.clock.now().timestamp() * 1000)
+    def receive_webhook(
+        self, raw_body: bytes, timestamp: str, signature: str, *, now_ms: int | None = None
+    ) -> dict[str, Any]:
+        # Real HTTP deliveries pass wall-clock now_ms. The mock console runs on a
+        # fixed demo clock, which would mark every real delivery stale.
+        if now_ms is None:
+            now_ms = int(self.clock.now().timestamp() * 1000)
         result = self.webhook.receive(raw_body, timestamp, signature, now_ms=now_ms)
         if result["status"] == 200 and not result.get("duplicate"):
             self._reconcile()

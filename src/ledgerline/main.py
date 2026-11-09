@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from decimal import Decimal
 from pathlib import Path
 from urllib.parse import quote
@@ -147,6 +148,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raw,
             request.headers.get("x-timestamp", ""),
             request.headers.get("x-signature", ""),
+            now_ms=int(time.time() * 1000),
         )
         # One line per delivery for the host's request log. No secrets, no body.
         print(

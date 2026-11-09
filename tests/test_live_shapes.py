@@ -194,3 +194,24 @@ def test_real_delivery_shape_reconciles_through_data_object(tmp_path):
     assert result["status"] == 200
     logged = [e for e in service.replay() if e["kind"] == "webhook"]
     assert logged and logged[-1]["payload"]["transfer_id"] == "tr_unknown"
+
+
+def test_http_webhook_route_checks_freshness_against_wall_clock(tmp_path):
+    import time
+
+    from fastapi.testclient import TestClient
+
+    from ledgerline.main import create_app
+    from ledgerline.webhooks.receiver import sign
+
+    settings = load_settings({"LEDGERLINE_DATA_DIR": str(tmp_path), "AIRWALLEX_WEBHOOK_SECRET": "s3"})
+    client = TestClient(create_app(settings))
+    raw = json.dumps({"id": "evt_wall", "name": "payout.transfer.paid",
+                      "data": {"object": {"id": "tr_x", "status": "PAID"}}}).encode()
+    ts = str(int(time.time() * 1000))
+    ok = client.post("/webhooks/airwallex", content=raw,
+                     headers={"x-timestamp": ts, "x-signature": sign("s3", ts, raw)})
+    assert ok.status_code == 200
+    bad = client.post("/webhooks/airwallex", content=raw,
+                      headers={"x-timestamp": ts, "x-signature": "0" * 64})
+    assert bad.status_code == 400
