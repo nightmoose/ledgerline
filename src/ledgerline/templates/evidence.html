@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Live sandbox evidence <span class="tag">recorded · read-only</span> <span class="tag">api-demo.airwallex.com</span></h1>
+<div class="note">
+  This page shows what the real Airwallex sandbox run of Nov 9, 2026 (run C, the one in the video) recorded.
+  It is read from <a href="{{ live.run_url }}">{{ live.run_file }}</a> in the repo and does not call Airwallex.
+  The other pages of this console are the mock on synthetic data and will show different ids.
+  Times are UTC.
+</div>
+<div class="row">
+  <div class="card"><div class="k">Run C</div><div class="v">{{ live.started[11:19] }}–{{ live.finished[11:19] }}</div><div class="k">{{ live.events }} audit events</div></div>
+  <div class="card"><div class="k">Real webhook deliveries to this host</div><div class="v ok">{{ live.host_total }} of {{ live.host_total }}</div><div class="k">HMAC verified, 200 · forged one got {{ live.host.forged.status }}</div></div>
+  <div class="card"><div class="k">Final book (ring-fenced)</div><div class="v">USD {{ live.balances.USD }}</div><div class="k">EUR {{ live.balances.EUR }} · GBP {{ live.balances.GBP }} · {{ live.result }}</div></div>
+</div>
+<div class="row"><div class="card">
+  <b>Approval, quote and conversion</b>
+  <table>
+    <tr><th>Item</th><th>Id</th><th>Time</th></tr>
+    <tr><td>FX quote (USD→EUR)</td><td><code>{{ live.quote_id }}</code></td><td></td></tr>
+    {% if live.approval %}<tr><td>Approval card</td><td><code>{{ live.approval.approval_id }}</code><br><span class="k">{{ live.approval.message }}</span><br><span class="k">fingerprint {{ live.approval.fingerprint }}</span></td><td>{{ live.approval.ts[11:19] }}</td></tr>{% endif %}
+    {% if live.conversion %}<tr><td>Conversion (after approval)</td><td><code>{{ live.conversion.conversion_id }}</code> · SETTLED</td><td>{{ live.conversion.ts[11:19] }}</td></tr>{% endif %}
+  </table>
+</div></div>
+<div class="row"><div class="card">
+  <b>Transfers created by Ledgerline in run C</b>
+  <table>
+    <tr><th>Obligation</th><th>Attempt</th><th>transfer_id</th><th>request_id</th><th>Status path</th></tr>
+    {% for t in live.transfers %}
+    <tr><td>{{ t.obligation }}</td><td>{{ t.attempt }}</td><td><code>{{ t.transfer_id }}</code></td><td><code>{{ t.request_id }}</code></td><td>{{ t.statuses }}</td></tr>
+    {% endfor %}
+  </table>
+</div></div>
+<div class="row"><div class="card">
+  <b>Real Airwallex deliveries for run C</b> <span class="k">(from the host's logs; first 8 characters of each id)</span>
+  <table>
+    <tr><th>Time</th><th>Event</th><th>Name</th><th>Transfer</th><th>Note</th></tr>
+    {% for row in live.host_run_c %}
+    <tr><td>{{ row.time }}</td><td><code>{{ row.event }}…</code></td><td>{{ row.name }}</td><td><code>{{ row.transfer }}…</code></td><td>{{ row.note }}</td></tr>
+    {% endfor %}
+  </table>
+  <div class="k">The other {{ live.host_total - live.host_run_c|length }} deliveries were webhook tests; all {{ live.host_total }} are listed in docs/EVIDENCE.md and <a href="/evidence.json">/evidence.json</a>.</div>
+</div></div>
+<div class="row"><div class="card">
+  <b>How to verify</b>
+  <pre>sha256sum evidence/live-2026-11-09/{{ live.run_file }}
+# {{ live.run_sha256 }}
+python scripts/sandbox_recount.py   # needs your own sandbox key; lists transfers and matches request_ids</pre>
+  <div class="k">The Nov 9 logs predate the hash chain, so the file hash above is their fingerprint. Runs since then verify with <code>python -m ledgerline.receipt verify</code>.</div>
+</div></div>
+{% endblock %}

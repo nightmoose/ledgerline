@@ -18,10 +18,21 @@ from fastapi.templating import Jinja2Templates
 from ledgerline.config import Settings, load_settings
 from ledgerline.demo_run import prepare_demo, run_demo, settle_demo
 from ledgerline.fxmath import usd_eq
+from ledgerline.live_evidence import load as load_live_evidence
 from ledgerline.money import format_money
 from ledgerline.redteam.cases import CLASSES
 from ledgerline.redteam.runner import run_all
 from ledgerline.service import Service
+
+# Every interactive page says plainly whether it is the mock or the sandbox.
+MOCK_BAR = "{page} · mock mode · synthetic data · no Airwallex calls"
+LIVE_BAR = "{page} · live · Airwallex {env} sandbox"
+
+
+def _bar(service: Service, page: str) -> str:
+    if service.settings.live:
+        return LIVE_BAR.format(page=page, env=service.settings.airwallex_env)
+    return MOCK_BAR.format(page=page)
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
 
@@ -47,7 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return TEMPLATES.TemplateResponse(
             request,
             "dashboard.html",
-            _page(app.state.service, "dashboard", "treasury console (synthetic sandbox data)")
+            _page(app.state.service, "dashboard", _bar(app.state.service, "treasury console"))
             | {"error": error},
         )
 
@@ -70,9 +81,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "prev": str(event.get("prev_hash") or "")[:10],
                 }
             )
-        body = _page(service, "trace", "decision trace (synthetic sandbox data)")
+        body = _page(service, "trace", _bar(app.state.service, "decision trace"))
         body.update({"events": events, "run_id": "run r_demo" if events else "", "chain": service.audit.verify()})
         return TEMPLATES.TemplateResponse(request, "trace.html", body)
+
+    @app.get("/evidence")
+    def evidence(request: Request):
+        body = _page(app.state.service, "evidence", "recorded live sandbox run · Nov 9, 2026 · read-only")
+        body.update({"live": load_live_evidence()})
+        return TEMPLATES.TemplateResponse(request, "evidence.html", body)
+
+    @app.get("/evidence.json")
+    def evidence_json() -> JSONResponse:
+        return JSONResponse(load_live_evidence())
 
     @app.get("/receipt")
     def receipt() -> JSONResponse:
@@ -81,7 +102,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/redteam")
     def redteam(request: Request):
         results = _redteam_results(app)
-        body = _page(app.state.service, "redteam", "hostile test suite (synthetic data, mock adapter)")
+        body = _page(app.state.service, "redteam", _bar(app.state.service, "hostile test suite"))
         body.update(
             {
                 "results": results,
@@ -129,7 +150,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "where": "policy.can_defer()",
             },
         ]
-        body = _page(service, "policy", "policy editor (synthetic)")
+        body = _page(service, "policy", _bar(app.state.service, "policy editor"))
         body.update(
             {
                 "rules": rules,
@@ -310,6 +331,7 @@ def _page(service: Service, page: str, bar: str) -> dict:
         "plan_title": plan_title,
         "confidence": f"{service.confidence}",
         "mode_label": f"{mode} · {host}",
+        "live_mode": service.settings.live,
         "error": "",
         "events": [],
         "run_id": "",
