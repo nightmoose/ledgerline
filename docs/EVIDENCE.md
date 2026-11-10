@@ -85,6 +85,14 @@ Runs A and B (19:07, 19:08) ran before the subscription was repointed to the pro
 and no deliveries for them appear in the host logs; their webhooks were checked as signed local echoes only. The sandbox sends a `paid` event for a
 transfer that later fails; Ledgerline re-reads the transfer and trusts its status, not the event name.
 
+## Re-check on Nov 10 after the submit deploy
+
+After the recount, one USD 1.00 LOCAL test transfer (`4b4b1f78-1fd6-4200-ad76-d2e3d3bbea4a`, reference
+`submit-webhook-check`) was moved SENT → PAID to confirm the rotated signing secret on the production
+deploy. Airwallex delivered `payout.transfer.paid` event `625333fb-2855-490e-a793-0ae5affbac14` and it
+returned 200 at about 17:55 UTC; a request signed with a wrong secret returned 400 `invalid_signature`.
+This transfer is not Ledgerline's and is not in the counts above.
+
 ## Limits of this evidence
 
 - The audit logs from Nov 9 predate the hash chain, so they are plain JSONL. Runs since then are chained

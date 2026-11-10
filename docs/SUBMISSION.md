@@ -79,5 +79,5 @@ Running against the host surfaced behaviour the docs don't spell out, now handle
 Checked Nov 10 against the HackerEarth event API, the hackathon page and the organisers' Slack:
 - Due by the HackerEarth Build Phase close, Sun Nov 15, 2026, 6:29 PM UTC (1:29 PM ET).
 - Working demo: https://ledgerline-inky.vercel.app (evidence at `/evidence`).
-- Video walkthrough under 5 minutes: VIDEO_DURATION, captions on; console scenes are labelled mock, the terminal and evidence scenes are the sandbox run.
+- Video walkthrough under 5 minutes: 4:04, captions on; console scenes are labelled mock, the terminal and evidence scenes are the sandbox run.
 - Repository with setup instructions: https://github.com/nightmoose/ledgerline (MIT, public), tag `v1.0-submit`; README "Quick start". Source zip: `git archive --format=zip v1.0-submit`.

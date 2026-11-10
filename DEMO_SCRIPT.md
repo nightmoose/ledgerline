@@ -1,6 +1,6 @@
 # Ledgerline demo video plan
 
-**Length: about 3:55, under the 5-minute limit.** Order: stakes first, proof second, the walkthrough on the mock, the live sandbox run and its ids on the evidence page, then the injection test as the climax, receipts, and limits last. The narration is in `media/voiceover/narration.md` (Eve voiceover); subtitles ship with the video.
+**Length: 4:04, under the 5-minute limit.** Order: stakes first, proof second, the walkthrough on the mock, the live sandbox run and its ids on the evidence page, then the injection test as the climax, receipts, and limits last. The narration is in `media/voiceover/narration.md` (Eve voiceover); subtitles ship with the video.
 
 The walkthrough follows the hackathon guide's shape: **goal → initial plan → new information → revised decision → financial result**.
 
