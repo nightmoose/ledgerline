@@ -18,3 +18,11 @@ jobs:
         run: ruff check src tests
       - name: Tests
         run: pytest
+      - name: Hostile suite (N of N refused by code)
+        run: |
+          python -m ledgerline.redteam.runner | tee redteam.md
+          cat redteam.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Demo run and receipt check
+        run: |
+          LEDGERLINE_DATA_DIR=ci-data python -m ledgerline.demo
+          python -m ledgerline.receipt verify ci-data/audit.jsonl

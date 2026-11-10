@@ -23,6 +23,8 @@ dev = [
 
 [project.scripts]
 ledgerline-demo = "ledgerline.demo:main"
+ledgerline-verify = "ledgerline.receipt:main"
+ledgerline-redteam = "ledgerline.redteam.runner:main"
 
 [build-system]
 requires = ["setuptools>=68"]

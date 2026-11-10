@@ -98,7 +98,11 @@ class Diff:
 class Service:
     def __init__(self, settings: Settings | None = None, clock: Clock | None = None) -> None:
         self.settings = settings or load_settings()
+        # Live mode runs on the wall clock. The mock console keeps a fixed demo
+        # clock for quote ages (so a slow click never trips the 60 s rule) but
+        # stamps the audit trail with real time when LEDGERLINE_CLOCK=wall.
         self.clock = clock or (WallClock() if self.settings.live else Clock())
+        self.stamp_clock: Clock = WallClock() if (self.settings.wall_clock and clock is None) else self.clock
         self.limits = load_limits(self.settings.limits_path)
         if self.settings.live and self.limits.swift_fee_live is not None:
             self.limits = self.limits.model_copy(update={"swift_fee": self.limits.swift_fee_live})
@@ -576,8 +580,13 @@ class Service:
         result = self.receive_webhook(raw, timestamp, signature)
         return result
 
-    def receive_webhook(self, raw_body: bytes, timestamp: str, signature: str) -> dict[str, Any]:
-        now_ms = int(self.clock.now().timestamp() * 1000)
+    def receive_webhook(
+        self, raw_body: bytes, timestamp: str, signature: str, *, now_ms: int | None = None
+    ) -> dict[str, Any]:
+        # Real HTTP deliveries pass wall-clock now_ms. The mock console runs on a
+        # fixed demo clock, which would mark every real delivery stale.
+        if now_ms is None:
+            now_ms = int(self.clock.now().timestamp() * 1000)
         result = self.webhook.receive(raw_body, timestamp, signature, now_ms=now_ms)
         if result["status"] == 200 and not result.get("duplicate"):
             self._reconcile()
@@ -589,6 +598,18 @@ class Service:
 
     def replay(self) -> list[dict[str, Any]]:
         return self.audit.replay()
+
+    def receipt(self) -> dict[str, Any]:
+        """Hash-chain verification of this run's audit log."""
+        report = self.audit.verify()
+        events = self.audit.replay()
+        return report.as_dict() | {
+            "verify": "python -m ledgerline.receipt verify <audit.jsonl>",
+            "chain": [
+                {"seq": e.get("seq"), "kind": e.get("kind"), "prev_hash": e.get("prev_hash"), "hash": e.get("hash")}
+                for e in events
+            ],
+        }
 
     def _replan(self, before: dict[str, Decimal], after: dict[str, Decimal]) -> Diff:
         assert self.plan is not None
@@ -635,6 +656,8 @@ class Service:
         current = self._binding_kwargs(line)
         refreshed = void_if_changed(approval, **current)
         self.approvals[refreshed.id] = refreshed
+        if refreshed.status == "pending":
+            raise ApprovalError("approval_required", f"{line.obligation_id} is waiting for a person to approve")
         if not bound_to(refreshed, **current):
             raise ApprovalError("void", "Approval does not match amount, currency, counterparty, quote_id, or evidence")
         return refreshed
@@ -767,7 +790,7 @@ class Service:
         return " · ".join(parts)
 
     def _log(self, kind: str, message: str, **payload: Any) -> None:
-        self.audit.append(kind, message, ts=self.clock.iso(), **payload)
+        self.audit.append(kind, message, ts=self.stamp_clock.iso(), **payload)
 
     def dry_run(self, draft: Limits) -> int:
         if not self.obligations:

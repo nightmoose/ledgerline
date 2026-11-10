@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import json
+import shutil
+import time
+import uuid
+from dataclasses import asdict, replace
 from decimal import Decimal
 from pathlib import Path
 from urllib.parse import quote
@@ -15,6 +19,8 @@ from ledgerline.config import Settings, load_settings
 from ledgerline.demo_run import prepare_demo, run_demo, settle_demo
 from ledgerline.fxmath import usd_eq
 from ledgerline.money import format_money
+from ledgerline.redteam.cases import CLASSES
+from ledgerline.redteam.runner import run_all
 from ledgerline.service import Service
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
@@ -54,10 +60,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             klass = "ok" if kind in {"APPROVED", "WEBHOOK", "RESULT", "CONTRACT"} else ""
             if kind in {"POLICY", "GATE"}:
                 klass = "warn"
-            events.append({"time": str(event["ts"])[11:19], "kind": kind, "message": event["message"], "klass": klass})
+            events.append(
+                {
+                    "time": str(event["ts"])[11:19],
+                    "kind": kind,
+                    "message": event["message"],
+                    "klass": klass,
+                    "hash": str(event.get("hash") or "")[:10],
+                    "prev": str(event.get("prev_hash") or "")[:10],
+                }
+            )
         body = _page(service, "trace", "decision trace (synthetic sandbox data)")
-        body.update({"events": events, "run_id": "run r_demo" if events else ""})
+        body.update({"events": events, "run_id": "run r_demo" if events else "", "chain": service.audit.verify()})
         return TEMPLATES.TemplateResponse(request, "trace.html", body)
+
+    @app.get("/receipt")
+    def receipt() -> JSONResponse:
+        return JSONResponse(app.state.service.receipt())
+
+    @app.get("/redteam")
+    def redteam(request: Request):
+        results = _redteam_results(app)
+        body = _page(app.state.service, "redteam", "hostile test suite (synthetic data, mock adapter)")
+        body.update(
+            {
+                "results": results,
+                "groups": _redteam_groups(results),
+                "refused": sum(1 for item in results if item.refused),
+                "total": len(results),
+            }
+        )
+        return TEMPLATES.TemplateResponse(request, "redteam.html", body)
+
+    @app.get("/redteam.json")
+    def redteam_json() -> JSONResponse:
+        return JSONResponse([asdict(item) for item in _redteam_results(app)])
 
     @app.get("/policy")
     def policy(request: Request, error: str = ""):
@@ -147,8 +184,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raw,
             request.headers.get("x-timestamp", ""),
             request.headers.get("x-signature", ""),
+            now_ms=int(time.time() * 1000),
         )
         # One line per delivery for the host's request log. No secrets, no body.
+        name = transfer_id = transfer_status = None
+        if result["status"] == 200:
+            event = json.loads(raw)
+            data = event.get("data") or {}
+            obj = data.get("object") if isinstance(data.get("object"), dict) else data
+            name = event.get("name")
+            transfer_id = obj.get("id")
+            transfer_status = obj.get("status")
         print(
             "webhook",
             json.dumps(
@@ -156,6 +202,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "status": result["status"],
                     "code": result.get("code"),
                     "event_id": result.get("event_id"),
+                    "name": name,
+                    "transfer_id": transfer_id,
+                    "transfer_status": transfer_status,
                     "duplicate": result.get("duplicate"),
                 }
             ),
@@ -167,15 +216,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 def _swap(app: FastAPI, runner) -> RedirectResponse:
+    # Each console run gets its own audit log, so the trace and its hash-chain
+    # receipt cover exactly one run.
+    base: Settings = app.state.settings
+    run_dir = base.data_dir / "runs" / uuid.uuid4().hex[:8]
     try:
-        fresh = Service(app.state.settings)
+        fresh = Service(replace(base, data_dir=run_dir))
         runner(fresh)
     except Exception as exc:
+        shutil.rmtree(run_dir, ignore_errors=True)
         return RedirectResponse(f"/?error={quote(str(exc))}", status_code=303)
     previous = app.state.service
     app.state.service = fresh
     previous.close()
+    if previous.settings.data_dir.parent == base.data_dir / "runs":
+        shutil.rmtree(previous.settings.data_dir, ignore_errors=True)
     return RedirectResponse("/", status_code=303)
+
+
+def _redteam_results(app: FastAPI):
+    cached = getattr(app.state, "redteam", None)
+    if cached is None:
+        cached = run_all()
+        app.state.redteam = cached
+    return cached
+
+
+def _redteam_groups(results) -> list[dict]:
+    groups = []
+    for key, label in CLASSES.items():
+        items = [item for item in results if item.klass == key]
+        groups.append(
+            {"label": label, "attempts": len(items), "refused": sum(1 for item in items if item.refused)}
+        )
+    return groups
 
 
 def _run(app: FastAPI, runner, target: str = "/") -> RedirectResponse:
