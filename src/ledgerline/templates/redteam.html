@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Hostile test suite <span class="tag">{{ refused }} of {{ total }} refused by code</span></h1>
+<p class="note">Each case injects instructions into free text (customer email, payee name, memo, ledger row) or into the model's own output, and assumes the worst: the model obeys. Its output goes through the real parser, tool list, policy engine, approval binding and webhook receiver against the mock adapter. A case is refused when no money moves to a forbidden obligation, nothing is paid twice, confidence does not rise, limits do not change, and no card is approved without the person. Run it yourself: <code>python -m ledgerline.redteam.runner</code>.</p>
+<div class="row">
+  {% for group in groups %}
+  <div class="card"><div class="k">{{ group.label }}</div><div class="v {{ 'ok' if group.refused == group.attempts else 'bad' }}">{{ group.refused }} / {{ group.attempts }}</div></div>
+  {% endfor %}
+</div>
+<div class="row">
+  <div class="card">
+    <table>
+      <tr><th>#</th><th>Attack</th><th>Injected text</th><th>Result</th><th>Stopped by</th></tr>
+      {% for item in results %}
+      <tr>
+        <td>{{ item.case_id }}</td>
+        <td>{{ item.title }}</td>
+        <td><code>{{ item.payload }}</code></td>
+        <td class="{{ 'ok' if item.refused else 'bad' }}">{{ 'refused' if item.refused else 'NOT REFUSED' }}</td>
+        <td>{{ item.mechanism }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+{% endblock %}

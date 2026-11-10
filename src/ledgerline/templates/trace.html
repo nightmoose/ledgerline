@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block body %}
 <h1>Decision trace {% if run_id %}<span class="tag">{{ run_id }}</span>{% endif %}</h1>
+{% if events %}
+<p class="note">Receipt:
+  {% if chain.ok %}<span class="ok">hash chain intact</span> · {{ chain.events }} events · head <code>{{ chain.head[:16] }}</code>
+  {% else %}<span class="bad">hash chain broken at seq {{ chain.first_bad_seq }}: {{ chain.reason }}</span>{% endif %}
+  · each row stores the previous row's SHA-256 · <a href="/receipt" style="color:#8b95ad">/receipt</a> · times UTC</p>
+{% endif %}
 <div class="row">
   <div class="card">
     {% if events %}
@@ -10,6 +16,7 @@
         <td>{{ event.time }}</td>
         <td><span class="tag">{{ event.kind }}</span></td>
         <td class="{{ event.klass }}">{{ event.message }}</td>
+        <td class="k"><code>{{ event.hash }}</code></td>
       </tr>
       {% endfor %}
     </table>

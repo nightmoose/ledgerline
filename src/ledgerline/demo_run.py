@@ -184,6 +184,10 @@ def settle_demo(service: Service, *, approver: str = "Alex") -> DemoReport:
         balances={key: str(value) for key, value in service.wallet().items()},
     )
     report.say(f"Reserves hold at {_fmt(service.wallet())}. Audit events: {len(service.replay())}.")
+    chain = service.audit.verify()
+    if not chain.ok:
+        raise RuntimeError(f"audit hash chain is broken: {chain.reason}")
+    report.say(f"Receipt: hash chain intact over {chain.events} events, head {chain.head[:12]}.")
     return report
 
 
