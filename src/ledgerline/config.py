@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 # Login was observed to return 201 on both of these hosts.
 DEMO_BASE_URL = "https://api-demo.airwallex.com"
@@ -13,6 +14,17 @@ ENV_BASE_URLS = {
     "demo": DEMO_BASE_URL,
     "sandbox": SANDBOX_BASE_URL,
 }
+
+
+# Airwallex hosts Ledgerline may call. Any other *.airwallex.com host, including
+# production (api.airwallex.com), is refused even when set via AIRWALLEX_BASE_URL.
+_ALLOWED_AIRWALLEX_HOSTS = {"api-demo.airwallex.com", "api.sandbox.airwallex.com"}
+
+
+def _reject_production_host(url: str) -> None:
+    host = (urlparse(url).hostname or "").lower().rstrip(".")
+    if (host == "airwallex.com" or host.endswith(".airwallex.com")) and host not in _ALLOWED_AIRWALLEX_HOSTS:
+        raise ValueError(f"AIRWALLEX_BASE_URL host {host} is not a demo or sandbox host; production is not supported")
 
 
 def resolve_base_url(env: dict[str, str]) -> tuple[str, str]:
@@ -26,6 +38,7 @@ def resolve_base_url(env: dict[str, str]) -> tuple[str, str]:
         raise ValueError("AIRWALLEX_ENV=production is not supported")
     explicit = env.get("AIRWALLEX_BASE_URL", "").strip()
     if explicit:
+        _reject_production_host(explicit)
         return explicit.rstrip("/"), airwallex_env
     if airwallex_env not in ENV_BASE_URLS:
         known = ", ".join(sorted(ENV_BASE_URLS))
