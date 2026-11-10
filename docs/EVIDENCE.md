@@ -71,8 +71,8 @@ All from Airwallex's delivery client. Every one returned 200 after the HMAC-SHA2
 | 19:44:17 | `9a8d895c-…` `payout.transfer.cancelled` | `45319919-…` |
 | 19:44:19 | `8cdea436-…` `payout.transfer.paid` | `061433ff-…` contractor replacement, run C |
 
-Runs A and B (19:07, 19:08) finished before the subscription was pointed at the production host, so their
-webhooks were verified as signed local echoes, not counted above. The sandbox sends a `paid` event for a
+Runs A and B (19:07, 19:08) ran before the subscription was repointed to the production host (updated 19:28),
+and no deliveries for them appear in the host logs; their webhooks were checked as signed local echoes only. The sandbox sends a `paid` event for a
 transfer that later fails; Ledgerline re-reads the transfer and trusts its status, not the event name.
 
 ## Limits of this evidence
