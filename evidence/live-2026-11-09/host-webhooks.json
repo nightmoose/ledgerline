@@ -1,0 +1,22 @@
+{
+  "source": "Vercel request and function logs for https://ledgerline-inky.vercel.app/webhooks/airwallex, Nov 9, 2026 (UTC). Event and transfer ids are the first 8 characters, as listed in docs/EVIDENCE.md.",
+  "signature": "HMAC-SHA256 over x-timestamp + raw body; every row returned 200",
+  "forged": {"time": "19:28:08", "status": 400, "code": "invalid_signature"},
+  "deliveries": [
+    {"time": "19:28:26", "event": "16f35870", "name": "", "transfer": "", "note": "webhook test"},
+    {"time": "19:28:29", "event": "8c2a2786", "name": "", "transfer": "", "note": "webhook test"},
+    {"time": "19:28:29", "event": "e43a0142", "name": "", "transfer": "", "note": "webhook test"},
+    {"time": "19:28:29", "event": "960effd7", "name": "", "transfer": "", "note": "webhook test"},
+    {"time": "19:28:30", "event": "231b0d73", "name": "", "transfer": "", "note": "webhook test"},
+    {"time": "19:29:41", "event": "bb316766", "name": "payout.transfer.paid", "transfer": "13b4945c", "note": "webhook test"},
+    {"time": "19:29:43", "event": "7f1e4e18", "name": "payout.transfer.paid", "transfer": "71579fa0", "note": "webhook test"},
+    {"time": "19:29:44", "event": "b9c71b64", "name": "payout.transfer.failed", "transfer": "71579fa0", "note": "webhook test"},
+    {"time": "19:29:44", "event": "4d41caff", "name": "payout.transfer.cancelled", "transfer": "71579fa0", "note": "webhook test"},
+    {"time": "19:44:11", "event": "99ed8b9b", "name": "payout.transfer.paid", "transfer": "dae0f4dd", "note": "run C · shipping"},
+    {"time": "19:44:13", "event": "d0b0960d", "name": "payout.transfer.paid", "transfer": "f1e59cd4", "note": "run C · Berlin SWIFT"},
+    {"time": "19:44:16", "event": "4c2f061a", "name": "payout.transfer.paid", "transfer": "45319919", "note": "run C · contractor (sandbox sent paid, then failed)"},
+    {"time": "19:44:17", "event": "89488e02", "name": "payout.transfer.failed", "transfer": "45319919", "note": "run C · contractor"},
+    {"time": "19:44:17", "event": "9a8d895c", "name": "payout.transfer.cancelled", "transfer": "45319919", "note": "run C · contractor"},
+    {"time": "19:44:19", "event": "8cdea436", "name": "payout.transfer.paid", "transfer": "061433ff", "note": "run C · contractor replacement"}
+  ]
+}

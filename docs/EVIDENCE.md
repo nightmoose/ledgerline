@@ -3,6 +3,16 @@
 Every number here was recounted from the sandbox API, the host's request logs or the audit logs in
 [`evidence/live-2026-11-09/`](../evidence/live-2026-11-09/). Nothing is estimated. Times are UTC.
 
+The three run logs and the host's delivery list (`host-webhooks.json`) are committed. The public console's
+**Live sandbox evidence** page (`/evidence`, JSON at `/evidence.json`) renders run C and those deliveries
+read-only; it makes no Airwallex call. Run C is the run shown in the video. SHA-256 of the run logs:
+
+| File | SHA-256 |
+|---|---|
+| `run-a-1907.audit.jsonl` | `dcb1c592a13ce2f6bb5372f7b2febc14ae85c045ed2a4addf1f1289f1b5208e1` |
+| `run-b-1908.audit.jsonl` | `537b0a46b49393fcd1c351c5b7fcaba2d030725a28b9e16d683823217780ff4e` |
+| `run-c-1943.audit.jsonl` | `40da196cc8e63e818d247155a7e5259246d27b45468b3016de9d68f21759fe11` |
+
 ## Headline
 
 | Measure | Result | Source |
@@ -11,7 +21,7 @@ Every number here was recounted from the sandbox API, the host's request logs or
 | Forged webhook (bad signature) | rejected, 400 `invalid_signature` | host function log, 19:28:08 |
 | Complete live runs of the kit sequence | **3** (about 35 s each) | audit logs |
 | Ledgerline transfers on the sandbox | **12**, each matched to an audit `execute` event by `request_id` | `scripts/sandbox_recount.py` |
-| Over-limit payments executed before a bound human approval | **0 of 3** (all 3 approved first) | audit order: `approved` precedes `execute` |
+| Over-limit payments executed before a bound human approval | **0 of 3** (all 3 approved first; the other 9 transfers were inside the automatic limits) | audit order: `approved` precedes `execute` |
 | Payroll exception (ESCALATE, EUR 9,800) transfers | **0** in 3 runs | sandbox transfer list |
 | Obligations paid twice | **0** (3 failed contractor payouts, 3 single replacements) | sandbox transfer list |
 | Reserves at or above floor at the end of each run | **3 of 3** | audit `result` events |
@@ -74,6 +84,14 @@ All from Airwallex's delivery client. Every one returned 200 after the HMAC-SHA2
 Runs A and B (19:07, 19:08) ran before the subscription was repointed to the production host (updated 19:28),
 and no deliveries for them appear in the host logs; their webhooks were checked as signed local echoes only. The sandbox sends a `paid` event for a
 transfer that later fails; Ledgerline re-reads the transfer and trusts its status, not the event name.
+
+## Re-check on Nov 10 after the submit deploy
+
+After the recount, one USD 1.00 LOCAL test transfer (`4b4b1f78-1fd6-4200-ad76-d2e3d3bbea4a`, reference
+`submit-webhook-check`) was moved SENT → PAID to confirm the rotated signing secret on the production
+deploy. Airwallex delivered `payout.transfer.paid` event `625333fb-2855-490e-a793-0ae5affbac14` and it
+returned 200 at about 17:55 UTC; a request signed with a wrong secret returned 400 `invalid_signature`.
+This transfer is not Ledgerline's and is not in the counts above.
 
 ## Limits of this evidence
 

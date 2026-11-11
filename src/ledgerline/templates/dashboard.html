@@ -4,6 +4,7 @@
   <span class="tag">{{ mode_label }}</span>
   <span class="tag">forecast confidence {{ confidence }}</span>
 </h1>
+{% if not live_mode %}<div class="note">Mock mode on synthetic data. This console holds no Airwallex key and cannot move sandbox money. The ids from the real Nov 9 sandbox run are on <a href="/evidence">Live sandbox evidence</a>.</div>{% endif %}
 {% if error %}<div class="error">{{ error }}</div>{% endif %}
 <div class="row">
   {% for card in cards %}

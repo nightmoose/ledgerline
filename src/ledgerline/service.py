@@ -32,6 +32,8 @@ from ledgerline.webhooks.receiver import WebhookReceiver, sign
 IN_FLIGHT = {"SCHEDULED", "PROCESSING", "SENT"}
 TERMINAL_OK = {"PAID"}
 TERMINAL_FAIL = {"CANCELLED", "FAILED"}
+# The first payout plus one replacement after a terminal failure.
+MAX_ATTEMPTS = 2
 COUNTRY = {"USD": "US", "EUR": "DE", "GBP": "GB"}
 BOOK_CURRENCIES = ("USD", "EUR", "GBP")
 
@@ -475,9 +477,24 @@ class Service:
             raise ExecutionError("duplicate_lock", "This obligation is already paid")
         if latest and latest.status == "cancelled" and not replacement:
             return latest
+        if latest and latest.status == "cancelled" and latest.attempt >= MAX_ATTEMPTS:
+            # One failed payout gets one replacement. After that a person decides.
+            raise ExecutionError(
+                "replacement_limit", "This obligation already had its one replacement; escalate to a person"
+            )
         attempt_no = 1 if latest is None or latest.status != "cancelled" else latest.attempt + 1
         conversion_id = None
-        if line.action == "CONVERT-MIN":
+        if line.action == "CONVERT-MIN" and latest is not None and latest.conversion_id:
+            # The first attempt's conversion settled and a failed payout returns
+            # its funds in the target currency, so a replacement only re-sends the
+            # transfer. Converting again would buy the currency twice.
+            conversion_id = latest.conversion_id
+            self._log(
+                "execute",
+                f"replacement reuses conversion {conversion_id}; no second conversion",
+                conversion_id=conversion_id,
+            )
+        elif line.action == "CONVERT-MIN":
             quote = self.quotes.get(obligation_id)
             if quote is None:
                 raise ExecutionError("quote_required", "Create a quote before converting")
